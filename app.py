@@ -94,18 +94,16 @@ if audio_data:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- MANUAL TYPING (Same as your original) ---
+# --- MANUAL TYPING SECTION ---
 st.write("---")
 my_msg = st.text_input("Type a message to translate & speak:")
 if st.button("Speak Now"):
     if my_msg:
+        # Determine direction based on the speaker_lang dropdown
         target = "Japanese" if speaker_lang == "English" else "English"
-        res = model.generate_content(f"Translate to {target}, output ONLY translation: {my_msg}")
-        clean = res.text.strip()
-        st.success(clean)
-        
-        voice_lang = 'ja' if target == "Japanese" else 'en'
-        tts = gTTS(text=clean, lang=voice_lang)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        st.audio(fp, autoplay=True)
+     
+        # FIX: We use a specific prompt to override the global system instructions
+        prompt_override = (
+            f"OVERRIDE SYSTEM FORMAT. Translate the following text into {target}. "
+            f"Do NOT include the original text. Do NOT use '|'. "
+            f"Output ONLY the translated string: {my_msg}"
