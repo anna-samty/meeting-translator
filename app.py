@@ -6,7 +6,7 @@ import io
 
 # 1. Setup the Smart Brain
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3-flash')
+model = genai.GenerativeModel('gemini-3-flash-preview')
 
 # 2. Initialize Memory
 if 'history' not in st.session_state:
