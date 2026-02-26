@@ -62,6 +62,40 @@ with st.container(height=400):
             st.write(f"**{item['side']}:** {item['orig']}")
             st.caption(f"Translation: {item['trans']}")
 
+# --- IMPROVED KEYBOARD SHORTCUT LOGIC ---
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    
+    // Function to find and click the recorder button
+    function toggleMic() {
+        const buttons = Array.from(doc.querySelectorAll('button'));
+        // We look for the Streamlit button that contains our emoji or text
+        const micBtn = buttons.find(b => 
+            b.innerText.includes("Record") || 
+            b.innerText.includes("Process")
+        );
+        
+        if (micBtn) {
+            micBtn.style.backgroundColor = "yellow"; // Visual feedback
+            setTimeout(() => micBtn.style.backgroundColor = "", 100);
+            micBtn.click();
+        }
+    }
+
+    doc.addEventListener('keydown', function(e) {
+        // Only trigger if NOT in a text field
+        if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            toggleMic();
+        }
+    });
+    </script>
+    """,
+    height=0,
+)
+
 # --- THE RECORDER ---
 st.write("---")
 speaker_lang = st.selectbox("Current Speaker Language:", ["English", "Japanese"])
