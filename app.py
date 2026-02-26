@@ -64,7 +64,7 @@ st.write("---")
 speaker_lang = st.selectbox("Current Speaker Language:", ["English", "Japanese"])
 
 audio_data = mic_recorder(
-    start_prompt="🔴 Start Listening",
+    start_prompt="🔴 Record Speech",
     stop_prompt="⏹️ Process Now",
     just_once=True, 
     key='recorder'
