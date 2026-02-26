@@ -8,7 +8,7 @@ import io
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 model = genai.GenerativeModel(
-    model_name='gemini-3-flash-preview',
+    model_name='gemini-2-flash',
     system_instruction="""
     You are a strict translation engine. 
     - If input is English, you MUST output ONLY Japanese.
