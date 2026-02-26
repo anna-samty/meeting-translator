@@ -8,15 +8,15 @@ import streamlit.components.v1 as components
 # 1. Setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# Use gemini-2.5-flash for stability
-model = genai.GenerativeModel(
+# MODEL A: For the Transcript (keeps the [Original] | [Translation] format)
+transcript_model = genai.GenerativeModel(
     model_name='gemini-2.5-flash',
-    system_instruction="""
-    You are a strict translation engine. 
-    - If input is English, you MUST output ONLY Japanese.
-    - If input is Japanese, you MUST output ONLY English.
-    - Format: [Original Text] | [Translated Text]
-    """
+    system_instruction="You are a strict translation engine. Format: [Original Text] | [Translated Text]"
+)
+
+# MODEL B: For Manual Typing (Pure Translation ONLY)
+manual_model = genai.GenerativeModel(
+    model_name='gemini-1.5-flash'
 )
 
 if 'history' not in st.session_state:
@@ -57,7 +57,7 @@ with st.container(height=400):
             st.write(f"**{item['side']}:** {item['orig']}")
             st.caption(f"Translation: {item['trans']}")
 
-# --- VOICE INPUT SECTION ---
+# --- VOICE INPUT SECTION (Uses Transcript Model) ---
 st.write("---")
 speaker_lang = st.selectbox("Current Speaker Language:", ["English", "Japanese"])
 
@@ -72,15 +72,14 @@ if audio_data:
     new_id = audio_data.get('id')
     if new_id != st.session_state['last_id']:
         st.session_state['last_id'] = new_id
-        with st.spinner("Translating..."):
+        with st.spinner("Processing..."):
             try:
-                audio_bytes = audio_data['bytes']
                 target_lang = "Japanese" if speaker_lang == "English" else "English"
-                prompt = f"Translate this {speaker_lang} audio into {target_lang}. Use format: [Original] | [Translation]"
-                
-                response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes}])
+                response = transcript_model.generate_content([
+                    f"Translate this {speaker_lang} audio into {target_lang}.",
+                    {'mime_type': 'audio/wav', 'data': audio_data['bytes']}
+                ])
                 res_text = response.text.strip()
-
                 if "|" in res_text:
                     for line in res_text.splitlines():
                         if "|" in line:
@@ -90,31 +89,36 @@ if audio_data:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- MANUAL TYPING SECTION (FIXED FOR CLEAN OUTPUT) ---
+# --- MANUAL TYPING SECTION (Uses Manual Model for Pure Output) ---
 st.write("---")
 st.subheader("Type Your Response")
 my_msg = st.text_input("Type a message to translate & speak:")
 
 if st.button("Generate & Prepare Voice"):
     if my_msg:
-        with st.spinner("Cleaning translation..."):
+        with st.spinner("Translating..."):
             target = "Japanese" if speaker_lang == "English" else "English"
             
-            # THE KEY FIX: Using a specific prompt that forbids the original text
-            clean_prompt = f"Provide ONLY the {target} translation of the following text. Do not include the original English, do not include brackets, and do not include the word 'Translation'. Text: {my_msg}"
+            # Use the Manual Model with a very strict one-time prompt
+            clean_res = manual_model.generate_content(
+                f"Translate the following text into {target}. "
+                f"Output ONLY the translated text. Do not include the original text, "
+                f"do not use brackets, and do not provide any explanation. "
+                f"Text to translate: {my_msg}"
+            )
             
-            res = model.generate_content(clean_prompt)
-            clean_result = res.text.strip()
+            final_text = clean_res.text.strip()
             
-            # Extra safety check: remove common labels if the AI hallucinates them
-            for label in ["Translation:", "Translated Text:", "Japanese:", "English:"]:
-                clean_result = clean_result.replace(label, "")
+            # Final cleaning just in case the AI includes the prompt text
+            if "|" in final_text:
+                final_text = final_text.split("|")[-1].strip()
             
-            st.success(clean_result.strip())
+            st.success(final_text)
             
+            # Generate Audio
             voice_lang = 'ja' if target == "Japanese" else 'en'
             try:
-                tts = gTTS(text=clean_result, lang=voice_lang)
+                tts = gTTS(text=final_text, lang=voice_lang)
                 fp = io.BytesIO()
                 tts.write_to_fp(fp)
                 st.audio(fp, autoplay=False)
