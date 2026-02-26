@@ -1,91 +1,65 @@
 import streamlit as st
 import google.generativeai as genai
 from streamlit_mic_recorder import mic_recorder
-from gtts import gTTS
 import io
 
-# 1. Setup with AGGRESSIVE language rules
+# 1. Setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
+# Advanced System Instruction for Multi-Speaker
 model = genai.GenerativeModel(
     model_name='gemini-3-flash-preview',
     system_instruction="""
-    You are a strict translation engine. 
-    - If input is English, you MUST output ONLY Japanese.
-    - If input is Japanese, you MUST output ONLY English.
-    - Format: [Original Text] | [Translated Text]
-    - If there is only noise or silence, respond with 'SILENCE'.
+    You are a Live Meeting Interpreter. 
+    1. Identify if multiple people are speaking. 
+    2. Label them as 'Speaker A' and 'Speaker B' based on context.
+    3. Translate English to Japanese and Japanese to English.
+    4. Format: Speaker [A/B] | [Original] | [Translation]
+    5. If audio is messy/noise, return 'RETRY'.
     """
 )
 
 if 'history' not in st.session_state:
     st.session_state['history'] = []
-if 'last_id' not in st.session_state:
-    st.session_state['last_id'] = 0
 
-st.set_page_config(page_title="JP-EN Meeting Tool", layout="wide")
-st.title("🎙️ Meeting Translator")
+st.set_page_config(page_title="Live Dual Translator", layout="wide")
+st.title("🎙️ Dual-Speaker Live Translator")
 
-# --- TRANSCRIPT ---
-with st.container(height=400): 
-    for item in st.session_state['history']:
-        with st.chat_message("user" if item['side'] == "English" else "assistant"):
-            st.write(f"**{item['side']}:** {item['orig']}")
-            st.caption(f"Translation: {item['trans']}")
+# --- DUAL INTERFACE (Same Screen) ---
+col_left, col_right = st.columns(2)
 
-# --- THE RECORDER ---
-st.write("---")
-speaker_lang = st.selectbox("Current Speaker Language:", ["English", "Japanese"])
+with col_left:
+    st.subheader("🇬🇧 English Side")
+    # This key 'eng_mic' keeps this mic separate from the JP one
+    eng_audio = mic_recorder(start_prompt="Start English Mic", stop_prompt="Stop", key='eng_mic', just_once=False)
 
-# 'just_once=True' ensures it processes once and doesn't repeat the sentence
-audio_data = mic_recorder(
-    start_prompt="🔴 Start Listening",
-    stop_prompt="⏹️ Process Now",
-    just_once=True, 
-    key='recorder'
-)
+with col_right:
+    st.subheader("🇯🇵 Japanese Side")
+    jp_audio = mic_recorder(start_prompt="Start Japanese Mic", stop_prompt="Stop", key='jp_mic', just_once=False)
 
-# Logic to catch the audio as soon as 'Stop' is pressed
-if audio_data:
-    # Use the unique ID from the recorder to prevent duplicates
-    new_id = audio_data.get('id')
-    if new_id != st.session_state['last_id']:
-        st.session_state['last_id'] = new_id
-        
-        with st.spinner("Translating..."):
+# --- THE ENGINE ---
+def process_live_audio(audio_bits, source_lang):
+    if audio_bits:
+        with st.spinner("Decoding..."):
             try:
-                audio_bytes = audio_data['bytes']
-                # Force the direction in the prompt too
-                target_lang = "Japanese" if speaker_lang == "English" else "English"
-                prompt = f"Translate this {speaker_lang} audio into {target_lang}. Format: [Original] | [Translation]"
-                
-                response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes}])
-                res_text = response.text.strip()
-
-                if "|" in res_text and "SILENCE" not in res_text.upper():
-                    orig, trans = res_text.split("|", 1)
-                    st.session_state['history'].append({
-                        "orig": orig.strip(), 
-                        "trans": trans.strip(), 
-                        "side": speaker_lang
-                    })
+                # Direct byte-stream to Gemini for speed
+                response = model.generate_content([
+                    f"Task: Real-time {source_lang} translation. Identify speakers.",
+                    {'mime_type': 'audio/wav', 'data': audio_bits['bytes']}
+                ])
+                res = response.text.strip()
+                if "|" in res and "RETRY" not in res:
+                    st.session_state['history'].append({"data": res, "lang": source_lang})
                     st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
+            except:
+                pass
 
-# --- MANUAL TYPING SECTION ---
+# Monitor both mics
+if eng_audio: process_live_audio(eng_audio, "English")
+if jp_audio: process_live_audio(jp_audio, "Japanese")
+
+# --- THE WATERFALL ---
 st.write("---")
-my_msg = st.text_input("Type a message to translate & speak:")
-if st.button("Speak Now"):
-    if my_msg:
-        # Determine direction based on the speaker_lang dropdown
-        target = "Japanese" if speaker_lang == "English" else "English"
-        res = model.generate_content(f"Translate to {target}. ONLY the translation: {my_msg}")
-        clean = res.text.strip()
-        st.success(clean)
-        
-        voice_lang = 'ja' if target == "Japanese" else 'en'
-        tts = gTTS(text=clean, lang=voice_lang)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        st.audio(fp, autoplay=True)
+st.header("Live Transcript")
+for item in reversed(st.session_state['history']): # Newest at top for easy reading
+    st.info(item['data'])
