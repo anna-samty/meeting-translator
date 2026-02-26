@@ -3,20 +3,19 @@ import google.generativeai as genai
 from streamlit_mic_recorder import mic_recorder
 from gtts import gTTS
 import io
-import streamlit.components.v1 as components
 
-# 1. Setup
+# 1. Setup with AGGRESSIVE language rules
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# MODEL A: For the Transcript (keeps the [Original] | [Translation] format)
-transcript_model = genai.GenerativeModel(
+model = genai.GenerativeModel(
     model_name='gemini-2.5-flash',
-    system_instruction="You are a strict translation engine. Format: [Original Text] | [Translated Text]"
-)
-
-# MODEL B: For Manual Typing (Pure Translation ONLY)
-manual_model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash'
+    system_instruction="""
+    You are a strict translation engine. 
+    - If input is English, you MUST output ONLY Japanese.
+    - If input is Japanese, you MUST output ONLY English.
+    - Format: [Original Text] | [Translated Text]
+    - If there is only noise or silence, respond with 'SILENCE'.
+    """
 )
 
 if 'history' not in st.session_state:
@@ -25,42 +24,20 @@ if 'last_id' not in st.session_state:
     st.session_state['last_id'] = 0
 
 st.set_page_config(page_title="JP-EN Meeting Tool", layout="wide")
-
-# --- STEALTH KEYBOARD CONTROL ---
-components.html(
-    """
-    <script>
-    const doc = window.parent.document;
-    doc.addEventListener('keydown', function(e) {
-        if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-            e.preventDefault();
-            const buttons = doc.querySelectorAll('button');
-            for (let btn of buttons) {
-                if (btn.innerText.includes("Listening") || btn.innerText.includes("Process")) {
-                    btn.click();
-                    break;
-                }
-            }
-        }
-    });
-    </script>
-    """,
-    height=0,
-)
-
 st.title("🎙️ Meeting Translator")
 
-# --- TRANSCRIPT SECTION ---
+# --- TRANSCRIPT ---
 with st.container(height=400): 
     for item in st.session_state['history']:
         with st.chat_message("user" if item['side'] == "English" else "assistant"):
             st.write(f"**{item['side']}:** {item['orig']}")
             st.caption(f"Translation: {item['trans']}")
 
-# --- VOICE INPUT SECTION (Uses Transcript Model) ---
+# --- THE RECORDER ---
 st.write("---")
 speaker_lang = st.selectbox("Current Speaker Language:", ["English", "Japanese"])
 
+# 'just_once=True' ensures it processes once and doesn't repeat the sentence
 audio_data = mic_recorder(
     start_prompt="🔴 Start Listening",
     stop_prompt="⏹️ Process Now",
@@ -68,59 +45,47 @@ audio_data = mic_recorder(
     key='recorder'
 )
 
+# Logic to catch the audio as soon as 'Stop' is pressed
 if audio_data:
+    # Use the unique ID from the recorder to prevent duplicates
     new_id = audio_data.get('id')
     if new_id != st.session_state['last_id']:
         st.session_state['last_id'] = new_id
-        with st.spinner("Processing..."):
+        
+        with st.spinner("Translating..."):
             try:
+                audio_bytes = audio_data['bytes']
+                # Force the direction in the prompt too
                 target_lang = "Japanese" if speaker_lang == "English" else "English"
-                response = transcript_model.generate_content([
-                    f"Translate this {speaker_lang} audio into {target_lang}.",
-                    {'mime_type': 'audio/wav', 'data': audio_data['bytes']}
-                ])
+                prompt = f"Translate this {speaker_lang} audio into {target_lang}. Format: [Original] | [Translation]"
+                
+                response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes}])
                 res_text = response.text.strip()
-                if "|" in res_text:
-                    for line in res_text.splitlines():
-                        if "|" in line:
-                            orig, trans = line.split("|", 1)
-                            st.session_state['history'].append({"orig": orig, "trans": trans, "side": speaker_lang})
+
+                if "|" in res_text and "SILENCE" not in res_text.upper():
+                    orig, trans = res_text.split("|", 1)
+                    st.session_state['history'].append({
+                        "orig": orig.strip(), 
+                        "trans": trans.strip(), 
+                        "side": speaker_lang
+                    })
                     st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- MANUAL TYPING SECTION (Uses Manual Model for Pure Output) ---
+# --- MANUAL TYPING SECTION ---
 st.write("---")
-st.subheader("Type Your Response")
 my_msg = st.text_input("Type a message to translate & speak:")
-
-if st.button("Generate & Prepare Voice"):
+if st.button("Speak Now"):
     if my_msg:
-        with st.spinner("Translating..."):
-            target = "Japanese" if speaker_lang == "English" else "English"
-            
-            # Use the Manual Model with a very strict one-time prompt
-            clean_res = manual_model.generate_content(
-                f"Translate the following text into {target}. "
-                f"Output ONLY the translated text. Do not include the original text, "
-                f"do not use brackets, and do not provide any explanation. "
-                f"Text to translate: {my_msg}"
-            )
-            
-            final_text = clean_res.text.strip()
-            
-            # Final cleaning just in case the AI includes the prompt text
-            if "|" in final_text:
-                final_text = final_text.split("|")[-1].strip()
-            
-            st.success(final_text)
-            
-            # Generate Audio
-            voice_lang = 'ja' if target == "Japanese" else 'en'
-            try:
-                tts = gTTS(text=final_text, lang=voice_lang)
-                fp = io.BytesIO()
-                tts.write_to_fp(fp)
-                st.audio(fp, autoplay=False)
-            except Exception as e:
-                st.error(f"Voice error: {e}")
+        # Determine direction based on the speaker_lang dropdown
+        target = "Japanese" if speaker_lang == "English" else "English"
+        res = model.generate_content(f"Translate to {target}. ONLY the translation: {my_msg}")
+        clean = res.text.strip()
+        st.success(clean)
+        
+        voice_lang = 'ja' if target == "Japanese" else 'en'
+        tts = gTTS(text=clean, lang=voice_lang)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        st.audio(fp, autoplay=True)
