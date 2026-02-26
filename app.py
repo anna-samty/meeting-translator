@@ -86,4 +86,43 @@ if audio_data:
                 
                 prompt = f"Transcribe and translate this {speaker_lang} audio into {target_lang}. Split thoughts into new lines: [Original] | [Translation]"
                 
-                response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes
+                response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes}])
+                res_text = response.text.strip()
+
+                if "SILENCE" not in res_text.upper():
+                    for line in res_text.splitlines():
+                        if "|" in line:
+                            orig, trans = line.split("|", 1)
+                            st.session_state['history'].append({
+                                "orig": orig.strip(), 
+                                "trans": trans.strip(), 
+                                "side": speaker_lang
+                            })
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+# --- MANUAL RESPONSE ---
+st.write("---")
+st.subheader("Type Your Response")
+my_msg = st.text_input("Type a message to translate & speak:", key="manual_text")
+
+if st.button("Generate & Prepare Voice"):
+    if my_msg:
+        with st.spinner("Translating..."):
+            target = "Japanese" if speaker_lang == "English" else "English"
+            res = model.generate_content(f"Translate to {target}. ONLY translation text: {my_msg}")
+            clean_result = res.text.strip()
+            
+            st.success(clean_result)
+            
+            # Generate Audio
+            voice_lang = 'ja' if target == "Japanese" else 'en'
+            try:
+                tts = gTTS(text=clean_result, lang=voice_lang)
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                # autoplay=False for manual play only
+                st.audio(fp, autoplay=False)
+            except Exception as e:
+                st.error(f"Voice generation error: {e}")
