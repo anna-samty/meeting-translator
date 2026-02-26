@@ -118,7 +118,7 @@ if st.button("Speak Now"):
 
         st.success(clean)
         
-        voice_lang = 'ja' if target == "Japanese" else 'en'
+        voice_lang = 'en' if target == "Japanese" else 'ja'
         tts = gTTS(text=clean, lang=voice_lang)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
