@@ -11,8 +11,7 @@ model = genai.GenerativeModel(
     system_instruction="""
     You are a professional meeting translator. 
     If audio is silent/static, respond with ONLY: 'SILENCE'. 
-    Otherwise, transcribe and translate. 
-    Format: Transcript: [text] | Translation: [text]
+    For audio translation, use format: Transcript: [text] | Translation: [text]
     """
 )
 
@@ -55,7 +54,7 @@ if audio_data:
 
 st.divider()
 
-# --- BOTTOM SECTION: MANUAL RESPONSE (Updated) ---
+# --- BOTTOM SECTION: MANUAL RESPONSE (Cleaned for Voice) ---
 st.header("2. Your Prepared Response")
 c1, c2 = st.columns([1, 3])
 with c1:
@@ -67,13 +66,19 @@ if st.button("Generate Translation & Voice"):
     if my_msg:
         with st.spinner("Translating..."):
             target = "polite Japanese" if my_lang == "English" else "natural English"
-            res = model.generate_content(f"Translate this to {target}: {my_msg}")
             
-            st.success(f"Result: {res.text}")
+            # UPDATED PROMPT: Asks for ONLY the translation, no labels
+            clean_prompt = f"Translate the following text into {target}. Provide ONLY the translated text. Do not include labels like 'Translation:' or 'Result:' or quotes: {my_msg}"
             
-            # Generate Audio (detects language automatically)
+            res = model.generate_content(clean_prompt)
+            clean_result = res.text.strip()
+            
+            # Display the result
+            st.success(clean_result)
+            
+            # Generate Audio using ONLY the clean text
             audio_lang = 'ja' if my_lang == "English" else 'en'
-            tts = gTTS(text=res.text, lang=audio_lang)
+            tts = gTTS(text=clean_result, lang=audio_lang)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             st.audio(fp)
