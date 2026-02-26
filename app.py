@@ -101,9 +101,25 @@ if st.button("Speak Now"):
     if my_msg:
         # Determine direction based on the speaker_lang dropdown
         target = "Japanese" if speaker_lang == "English" else "English"
-     
+        
         # FIX: We use a specific prompt to override the global system instructions
         prompt_override = (
             f"OVERRIDE SYSTEM FORMAT. Translate the following text into {target}. "
             f"Do NOT include the original text. Do NOT use '|'. "
             f"Output ONLY the translated string: {my_msg}"
+        )
+        
+        res = model.generate_content(prompt_override)
+        clean = res.text.strip()
+        
+        # Further safety: If the model still slips up, we grab only the second part
+        if "|" in clean:
+            clean = clean.split("|")[-1].strip()
+
+        st.success(clean)
+        
+        voice_lang = 'ja' if target == "Japanese" else 'en'
+        tts = gTTS(text=clean, lang=voice_lang)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        st.audio(fp, autoplay=True)
