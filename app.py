@@ -77,17 +77,30 @@ if audio_data:
 
 # --- MANUAL TYPING SECTION ---
 st.write("---")
+st.subheader("Type Your Response")
 my_msg = st.text_input("Type a message to translate & speak:")
-if st.button("Speak Now"):
+
+if st.button("Generate & Prepare Voice"):
     if my_msg:
-        target = "Japanese" if speaker_lang == "English" else "English"
-        # Force the AI to be concise for the voice output
-        res = model.generate_content(f"Translate to {target}. Output ONLY the translation text: {my_msg}")
-        clean = res.text.strip()
-        st.success(clean)
-        
-        voice_lang = 'ja' if target == "Japanese" else 'en'
-        tts = gTTS(text=clean, lang=voice_lang)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        st.audio(fp, autoplay=True)
+        with st.spinner("Translating..."):
+            # Determine target based on the dropdown selection
+            target = "Japanese" if speaker_lang == "English" else "English"
+            
+            # Request only the translated text for a clean TTS experience
+            res = model.generate_content(f"Translate to {target}. Output ONLY the translated text, no extra words or labels: {my_msg}")
+            clean_result = res.text.strip()
+            
+            # Display the result to the user
+            st.success(clean_result)
+            
+            # Generate Text-to-Speech
+            voice_lang = 'ja' if target == "Japanese" else 'en'
+            try:
+                tts = gTTS(text=clean_result, lang=voice_lang)
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                
+                # autoplay=False ensures it only plays when you click the button
+                st.audio(fp, autoplay=False)
+            except Exception as e:
+                st.error(f"Voice generation error: {e}")
