@@ -3,12 +3,13 @@ import google.generativeai as genai
 from streamlit_mic_recorder import mic_recorder
 from gtts import gTTS
 import io
+import streamlit.components.v1 as components  # Added this back
 
 # 1. Setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 model = genai.GenerativeModel(
-    model_name='gemini-2.5-flash',
+    model_name='gemini-1.5-flash', # Corrected to stable version
     system_instruction="""
     You are a strict translation engine. 
     - If input is English, you MUST output ONLY Japanese.
@@ -24,11 +25,9 @@ if 'history' not in st.session_state:
 if 'last_id' not in st.session_state:
     st.session_state['last_id'] = 0
 
-st.set_page_config(page_title="JP-EN Meeting Tool", layout="wide")
-st.title("🎙️ Meeting Translator")
+st.set_page_config(page_title="JP-EN Stealth Tool", layout="wide")
 
-# --- KEYBOARD SHORTCUT LOGIC (JavaScript) ---
-# This script listens for the "Space" key and clicks the mic button for you.
+# --- KEYBOARD SHORTCUT (Spacebar to Record) ---
 components.html(
     """
     <script>
@@ -80,15 +79,12 @@ if audio_data:
             try:
                 audio_bytes = audio_data['bytes']
                 target_lang = "Japanese" if speaker_lang == "English" else "English"
-                
-                # Instruction to handle multiple sentences in one recording
-                prompt = f"Transcribe and translate this {speaker_lang} audio into {target_lang}. Split different thoughts into new lines using the [Original] | [Translation] format."
+                prompt = f"Transcribe and translate this {speaker_lang} audio into {target_lang}. Split thoughts into lines using: [Original] | [Translation]"
                 
                 response = model.generate_content([prompt, {'mime_type': 'audio/wav', 'data': audio_bytes}])
                 res_text = response.text.strip()
 
                 if "SILENCE" not in res_text.upper():
-                    # This 'splitlines' logic handles multiple sentences if they exist
                     for line in res_text.splitlines():
                         if "|" in line:
                             orig, trans = line.split("|", 1)
@@ -101,7 +97,7 @@ if audio_data:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- MANUAL TYPING SECTION ---
+# --- MANUAL TYPING ---
 st.write("---")
 st.subheader("Type Your Response")
 my_msg = st.text_input("Type a message to translate & speak:")
@@ -109,24 +105,15 @@ my_msg = st.text_input("Type a message to translate & speak:")
 if st.button("Generate & Prepare Voice"):
     if my_msg:
         with st.spinner("Translating..."):
-            # Determine target based on the dropdown selection
             target = "Japanese" if speaker_lang == "English" else "English"
-            
-            # Request only the translated text for a clean TTS experience
-            res = model.generate_content(f"Translate to {target}. Output ONLY the translated text, no extra words or labels: {my_msg}")
+            res = model.generate_content(f"Translate to {target}. ONLY translation text: {my_msg}")
             clean_result = res.text.strip()
             
-            # Display the result to the user
             st.success(clean_result)
             
-            # Generate Text-to-Speech
             voice_lang = 'ja' if target == "Japanese" else 'en'
-            try:
-                tts = gTTS(text=clean_result, lang=voice_lang)
-                fp = io.BytesIO()
-                tts.write_to_fp(fp)
-                
-                # autoplay=False ensures it only plays when you click the button
-                st.audio(fp, autoplay=False)
-            except Exception as e:
-                st.error(f"Voice generation error: {e}")
+            tts = gTTS(text=clean_result, lang=voice_lang)
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            # autoplay=False ensures it only plays when you click
+            st.audio(fp, autoplay=False)
