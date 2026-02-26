@@ -27,6 +27,32 @@ if 'last_id' not in st.session_state:
 st.set_page_config(page_title="JP-EN Meeting Tool", layout="wide")
 st.title("🎙️ Meeting Translator")
 
+# --- KEYBOARD SHORTCUT LOGIC (JavaScript) ---
+# This script listens for the "Space" key and clicks the mic button for you.
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    doc.addEventListener('keydown', function(e) {
+        if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            const buttons = doc.querySelectorAll('button');
+            for (let btn of buttons) {
+                if (btn.innerText.includes("Record") || btn.innerText.includes("Process")) {
+                    btn.click();
+                    break;
+                }
+            }
+        }
+    });
+    </script>
+    """,
+    height=0,
+)
+
+st.title("🎙️ Meeting Translator (Stealth Mode)")
+st.caption("Tip: Press **Spacebar** to Start/Stop recording (ensure you aren't typing in a box).")
+
 # --- TRANSCRIPT ---
 with st.container(height=400): 
     for item in st.session_state['history']:
