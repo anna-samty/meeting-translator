@@ -9,7 +9,7 @@ genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # Use the latest flash model for speed
 model = genai.GenerativeModel(
-    model_name='gemini-3-flash', # 2.0/2.5 Flash is significantly faster for 'live' feels
+    model_name='gemini-2.0-flash', # 2.0/2.5 Flash is significantly faster for 'live' feels
     system_instruction="""
     You are a strict translation engine. 
     - If input is English, output ONLY Japanese.
