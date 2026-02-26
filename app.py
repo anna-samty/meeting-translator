@@ -6,84 +6,82 @@ import io
 
 # 1. Setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = genai.GenerativeModel('gemini-3-flash-preview')
 
-model = genai.GenerativeModel(
-    model_name='gemini-3-flash-preview',
-    system_instruction="""
-    You are a Real-Time Meeting Interpreter.
-    1. Format: [Speaker Name] | [Original] | [Translation]
-    2. Distinguish multiple people as 'Speaker 1', 'Speaker 2', etc.
-    3. English <-> Japanese.
-    4. If no speech, respond with ONLY '...'
-    """
-)
-
+# Initialize History
 if 'history' not in st.session_state:
     st.session_state['history'] = []
 
-st.set_page_config(page_title="Live Dual Translator", layout="wide")
-st.title("🚀 Live Multi-Speaker & Manual Translator")
+st.set_page_config(page_title="Stable JP-EN Translator", layout="wide")
+st.title("🎙️ English-Japanese Meeting Tool")
 
-# --- TOP SECTION: LIVE AUTO-STREAM ---
-st.header("1. Live Automatic Translation")
-col1, col2 = st.columns(2)
+# --- 1. TRANSCRIPT (Waterfall) ---
+st.header("Meeting Transcript")
+with st.container(height=350):
+    for item in st.session_state['history']:
+        with st.chat_message("user" if item['side'] == "English" else "assistant"):
+            st.write(f"**{item['side']}:** {item['orig']}")
+            st.caption(f"Translation: {item['trans']}")
+
+# --- 2. VOICE INPUT (Manual Trigger) ---
+st.divider()
+st.subheader("Capture Speech")
+col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.markdown("### 🇬🇧 English Mic")
-    eng_audio = mic_recorder(start_prompt="Start English Auto-Stream", stop_prompt="Stop", key='eng_stream')
+    speaker_lang = st.selectbox("Who is speaking?", ["English", "Japanese"])
+    # Manual trigger avoids the 'ResourceExhausted' error
+    audio_data = mic_recorder(
+        start_prompt=f"Record {speaker_lang}", 
+        stop_prompt="Stop & Translate", 
+        key='manual_mic'
+    )
 
-with col2:
-    st.markdown("### 🇯🇵 Japanese Mic")
-    jp_audio = mic_recorder(start_prompt="Start Japanese Auto-Stream", stop_prompt="Stop", key='jp_stream')
+if audio_data:
+    with st.spinner("Processing..."):
+        try:
+            target_lang = "Japanese" if speaker_lang == "English" else "English"
+            prompt = f"Identify speaker and translate this {speaker_lang} audio into {target_lang}. Format: [Original] | [Translation]"
+            
+            response = model.generate_content([
+                prompt,
+                {'mime_type': 'audio/wav', 'data': audio_data['bytes']}
+            ])
+            
+            res_text = response.text.strip()
+            if "|" in res_text:
+                orig, trans = res_text.split("|", 1)
+                st.session_state['history'].append({
+                    "orig": orig.strip(), 
+                    "trans": trans.strip(), 
+                    "side": speaker_lang
+                })
+                st.rerun()
+        except Exception as e:
+            st.error(f"API Error: {e}. If it says 'ResourceExhausted', wait 60 seconds.")
 
-# Auto-Processing Logic
-def process_segment(audio_data, source_lang):
-    if audio_data:
-        with st.status(f"Interpreting {source_lang}...", expanded=False):
-            try:
-                response = model.generate_content([
-                    f"Context: Real-time {source_lang} segment.",
-                    {'mime_type': 'audio/wav', 'data': audio_data['bytes']}
-                ])
-                output = response.text.strip()
-                if "|" in output and "..." not in output:
-                    st.session_state['history'].append({"text": output, "lang": source_lang})
-                    st.rerun()
-            except Exception as e:
-                st.error("Processing...")
-
-if eng_audio: process_segment(eng_audio, "English")
-if jp_audio: process_segment(jp_audio, "Japanese")
-
-# --- TRANSCRIPT DISPLAY ---
-with st.container(height=300):
-    for item in reversed(st.session_state['history']):
-        st.write(item['text'])
-
+# --- 3. PREPARED RESPONSE (Manual Typing) ---
 st.divider()
-
-# --- BOTTOM SECTION: MANUAL RESPONSE (Restored) ---
-st.header("2. Your Prepared Response")
+st.subheader("Your Response")
 c1, c2 = st.columns([1, 3])
 with c1:
     my_lang = st.radio("I am typing in:", ["English", "Japanese"], horizontal=True)
 
-my_msg = st.text_area(f"Type your {my_lang} reply here:")
+my_msg = st.text_input(f"Type your {my_lang} reply:")
 
 if st.button("Generate & Speak"):
     if my_msg:
         with st.spinner("Translating..."):
             target = "polite Japanese" if my_lang == "English" else "natural English"
-            # Command ONLY the translation for clean audio
-            clean_prompt = f"Translate to {target}. Provide ONLY the translated text: {my_msg}"
-            res = model.generate_content(clean_prompt)
+            # Explicitly asking for ONLY the text to keep the voice clean
+            res = model.generate_content(f"Translate this to {target}. Provide ONLY the translated text, no labels: {my_msg}")
             clean_result = res.text.strip()
             
             st.success(clean_result)
             
-            # Generate Audio
-            audio_lang = 'ja' if my_lang == "English" else 'en'
-            tts = gTTS(text=clean_result, lang=audio_lang)
+            # Generate and Play Audio
+            v_lang = 'ja' if my_lang == "English" else 'en'
+            tts = gTTS(text=clean_result, lang=v_lang)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             st.audio(fp, autoplay=True)
