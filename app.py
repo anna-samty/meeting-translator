@@ -8,9 +8,9 @@ import io
 # Ensure your GEMINI_API_KEY is set in your Streamlit Secrets
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# Using the stable Gemini 1.5 Flash model
+# Using the stable Gemini 2.5 Flash model
 model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
+    model_name='gemini-2.5-flash',
     system_instruction="""
     You are a strict translation engine. 
     - If input is English, you MUST output ONLY Japanese.
