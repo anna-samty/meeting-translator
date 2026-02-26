@@ -89,4 +89,4 @@ if st.button("Speak Now"):
         tts = gTTS(text=clean, lang=v_lang)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
-        st.audio(fp
+        st.audio(fp, autoplay=True)
