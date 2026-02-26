@@ -4,9 +4,20 @@ from streamlit_mic_recorder import mic_recorder
 from gtts import gTTS
 import io
 
-# 1. Setup the Smart Brain
+# 1. Setup the Brain with "Anti-Hallucination" rules
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3-flash-preview')
+
+# We use gemini-3-flash-preview (the 2026 standard)
+# We add a 'System Instruction' to prevent it from making up fake conversations
+model = genai.GenerativeModel(
+    model_name='gemini-3-flash-preview',
+    system_instruction="""
+    You are a professional meeting translator. 
+    If the audio provided is silent, contains only static, 
+    or has no clear human speech, you must respond with ONLY the word: 'SILENCE'. 
+    Do not invent any text or conversations.
+    """
+)
 
 # 2. Initialize Memory
 if 'history' not in st.session_state:
@@ -24,69 +35,62 @@ with st.container(height=400):
             st.write(f"**{item['side']}:** {item['orig']}")
             st.caption(f"Translation: {item['trans']}")
 
-# --- CONTROLS SECTION (The New Web-Mic) ---
+# --- CONTROLS SECTION ---
 col1, col2 = st.columns([1, 2])
 with col1:
     speaker_lang = st.selectbox("Who is speaking?", ["English", "Japanese"])
-    st.write("Click to record, click again to stop:")
+    st.write("Click to record, speak, then click stop:")
     
-    # This replaces the old 'Listen' button with a web-compatible one
+    # Capture audio from the browser
     audio_data = mic_recorder(
         start_prompt="🔴 Start Recording",
         stop_prompt="⏹️ Stop & Translate",
         key='recorder'
     )
 
-# Process the recording if it exists
+# When a recording is finished:
 if audio_data:
     try:
-        # 1. Get the audio from the browser
         audio_bytes = audio_data['bytes']
         
-        # 2. Use Gemini to "Hear" and "Translate" in one go
-        # This is more stable for web than the old SpeechRecognition library
-        prompt = f"""
-        The attached audio is in {speaker_lang}. 
-        1. Transcribe the audio exactly.
-        2. Translate it into {'Japanese' if speaker_lang == 'English' else 'English'}.
-        Context of previous meeting: {str(st.session_state['history'][-3:])}
-        Format output as: Transcript: [text] | Translation: [text]
-        """
+        # We ask Gemini to transcribe and translate in one step
+        prompt = f"Transcribe this {speaker_lang} audio and translate it to the other language. Format as: Transcript: [text] | Translation: [text]"
         
-        # We send the audio bytes directly to Gemini
         response = model.generate_content([
             prompt,
             {'mime_type': 'audio/wav', 'data': audio_bytes}
         ])
         
-        # Parse the response (simple split logic)
-        res_text = response.text
-        if "|" in res_text:
-            orig = res_text.split("|")[0].replace("Transcript:", "").strip()
-            trans = res_text.split("|")[1].replace("Translation:", "").strip()
+        res_text = response.text.strip()
+
+        # Check if the AI thought it was silence
+        if "SILENCE" not in res_text.upper() and "|" in res_text:
+            parts = res_text.split("|")
+            orig = parts[0].replace("Transcript:", "").strip()
+            trans = parts[1].replace("Translation:", "").strip()
             
-            # Update History
+            # Add to the bottom of the waterfall
             st.session_state['history'].append({"orig": orig, "trans": trans, "side": speaker_lang})
             st.rerun()
+        elif "SILENCE" in res_text.upper():
+            st.toast("No clear speech detected.")
             
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Brain Error: {e}")
 
 st.divider()
 
-# --- BOTTOM SECTION: YOUR RESPONSE ---
+# --- BOTTOM SECTION: MANUAL RESPONSE ---
 st.header("2. Your Prepared Response")
 my_msg = st.text_area("Type your English reply:")
 
 if st.button("Translate & Voice"):
     if my_msg:
         res = model.generate_content(f"Translate this to polite Japanese: {my_msg}")
-        st.session_state['last_voice'] = res.text
         st.success(f"Japanese: {res.text}")
         
-        # Create Audio
+        # Generate the voice
         tts = gTTS(text=res.text, lang='ja')
-        # Use a buffer instead of a file for better web performance
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         st.audio(fp)
